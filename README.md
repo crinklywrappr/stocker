@@ -1,6 +1,6 @@
 # stocker
     
-Clone of ystockquote (https://github.com/fengb/ystockquote/).
+Clone of ystockquote (https://github.com/fengb/ystockquote/).  Allows you to programatically query Yahoo for stock information.
 
 ## Usage
 
