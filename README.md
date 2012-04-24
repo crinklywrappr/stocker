@@ -4,6 +4,10 @@ Clone of ystockquote (https://github.com/fengb/ystockquote/).
 
 ## Usage
 
+Leiningen dependency:
+
+    stocker "0.1.0-SNAPSHOT"
+
 Stocker uses clj-time to some extent
 
     => (use '[clj-time.core :exclude (extend)])
