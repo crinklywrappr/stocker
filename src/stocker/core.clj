@@ -53,9 +53,7 @@
    [sym] -> Returns all available stats for the given stock (raw)"
   ([sym & stats]
    (let [ystats (apply str (vals (select-keys stats-map stats)))]
-     (->> (str curr-url "?s=" sym "&f=" ystats)
-          (client/get)
-          (:body))))
+     (:body (client/get (str curr-url "?s=" sym "&f=" ystats)))))
    ([sym] (apply curr-stats-raw (cons sym (keys stats-map)))))
 
 
