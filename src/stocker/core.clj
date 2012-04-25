@@ -1,5 +1,5 @@
 (ns stocker.core
-    (:require [clojure.java.io :as io])
+    (:require [clojure.data.csv :as csv])
     (:require [clojure.string :as cstr])
     (:require [clj-http.client :as client])
     (:require [clj-time.core :as ctime]))
@@ -35,47 +35,65 @@
          (reverse coll)
          coll))
 
-(defn- hist-map
-       "Given a row of historical data, turns it into a map"
-       [hist-coll]
-       (apply hash-map 
-              (interleave [:date :open :high :low :close :vol :adj-close] 
-                          (cstr/split hist-coll #","))))
+(defn safekey 
+  "Given a keyword name, replaces all spaces with a dash, 
+   transforms it to lowercase, and then makes it a keyword"
+  [name] 
+  (-> name 
+      (cstr/replace #" " "-") 
+      (cstr/lower-case) 
+      (keyword)))
+
+(defn build-map 
+  "[ks vs] -> Given these two collections, constructs a hashmap of {ks1 vs1 ks2 vs2 ...}"
+  [ks vs] (apply hash-map (interleave ks vs)))
+
+(defn curr-stats-raw
+  "[sym & stats] -> Returns the requested stats for the given stock (raw)
+   [sym] -> Returns all available stats for the given stock (raw)"
+  ([sym & stats]
+   (let [ystats (apply str (vals (select-keys stats-map stats)))]
+     (->> (str curr-url "?s=" sym "&f=" ystats)
+          (client/get)
+          (:body))))
+   ([sym] (apply curr-stats-raw (cons sym (keys stats-map)))))
+
 
 (defn curr-stats
   "[sym & stats] -> Returns the requested stats for the given stock
    [sym] -> Returns all available stats for the given stock"
   ([sym & stats]
-   (let [ystats (apply str (vals (select-keys stats-map stats)))]
-     (->>
-       (-> (str curr-url "?s=" sym "&f=" ystats)
-           (client/get)
-           (:body)
-           (cstr/trim-newline)
-           (cstr/replace #"\"" "")
-           (cstr/split #","))
-       ;; For some reason, yahoo reorders stats after 9 
-       ;; entries, so we need to reverse the stats if 
-       ;; less than 9 were requested, and not touch it
-       ;; if more than 9 were requested
-       (cond-reverse 9) 
-       (interleave stats)
-       (apply hash-map))))
-   ([sym] (apply curr-stats (cons sym (keys stats-map)))))
+   (->> (apply curr-stats-raw sym stats)
+        (csv/read-csv)
+        ;; For some reason, yahoo reorders stats after 9 
+        ;; entries, so we need to reverse the stats if 
+        ;; less than 9 were requested, and not touch it
+        ;; if more than 9 were requested.  Need to cons
+        ;; 9 onto the form, since read-csv returns a nested
+        ;; vector ie ([data])
+        (cons 9)
+        (apply cond-reverse)
+        (interleave stats)
+        (apply hash-map)))
+  ([sym] (apply curr-stats (cons sym (keys stats-map)))))
 
-(defn hist-stats
-  "[sym start end] -> returns the historical data for this stock between start & end, inclusive
-   [sym interval] -> returns the historical data from this stock within interval, inclusive"
+(defn hist-stats-raw
+  "[sym start end] -> returns the historical data for this stock between start & end, inclusive (raw)
+   [sym interval] -> returns the historical data from this stock within interval, inclusive (raw)"
   ([sym start end]
    (let [url (str past-url "?s=" sym 
                   "&a=" (ctime/month start) "&b=" (ctime/day start) "&c=" (ctime/year start) 
                   "&d=" (ctime/month end) "&e=" (ctime/day end) "&f=" (ctime/year end) 
                   "&g=d&ignore=.csv")]
-     (->>
-       (-> (client/get url)
-           (:body)
-           (cstr/split #"\n"))
-       (drop 1)
-       (map hist-map)
-       (vec))))
+     (:body (client/get url))))
+  ([sym interval] (hist-stats-raw sym (ctime/start interval) (ctime/end interval))))
+
+(defn hist-stats 
+  "[sym start end] -> returns the historical data for this stock between start & end, inclusive
+   [sym interval] -> returns the historical data from this stock within interval, inclusive"
+  ([sym start end] 
+   (let [stats (csv/read-csv (hist-stats-raw sym start end)) 
+         ks (apply map safekey (take 1 stats)) 
+         hm (partial build-map ks)] 
+     (vec (map hm (drop 1 stats)))))
   ([sym interval] (hist-stats sym (ctime/start interval) (ctime/end interval))))
